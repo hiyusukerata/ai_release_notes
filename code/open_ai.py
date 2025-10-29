@@ -147,7 +147,7 @@ def extract_release_notes(url):
 if __name__ == "__main__":
     
     # スプレッドシートIDが変更されているかチェック
-    if SPREADSHEET_ID == "1U_6H73SKZ7NXWHB7oXG2mdhh4kHe0zLXg9iSJ3jCjqY":
+    if SPREADSHEET_ID == "1waFSSryRnz1H0EzgUoTPjcqjfyssd3PbXclANx0YOZA":
         print("\n--- 警告 ---")
         print("SPREADSHEET_ID をあなたのスプレッドシートIDに置き換えてください。処理を終了します。")
         sys.exit(1)
