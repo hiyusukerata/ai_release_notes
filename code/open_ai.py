@@ -46,13 +46,14 @@ def get_credentials():
             
     return creds
 
+
 # ==========================
-# Sheets 書き込み関数 (ロジックを本件用に修正)
+# Sheets 書き込み関数 (ロジックを3列用に修正)
 # ==========================
 def write_release_notes(data):
     """
     抽出したリリース情報をスプレッドシートのA2以降に書き込みます。
-    A列: 日付, B列: リリース内容
+    A列: 日付, B列: タイトル, C列: 本文
     """
     try:
         creds = get_credentials()
@@ -63,11 +64,11 @@ def write_release_notes(data):
             print("⚠️ 転記するデータがありません。")
             return
 
-        # 1. ヘッダー行 (A1:B1) を書き込み
-        header = [['日付', 'リリース内容']]
+        # 1. ヘッダー行 (A1:C1) を書き込み
+        header = [['日付 (H1)', 'タイトル (H3)', '本文']]
         sheet.values().update(
             spreadsheetId=SPREADSHEET_ID,
-            range=f"{RELEASE_SHEET}!A1:B1",
+            range=f"{RELEASE_SHEET}!A1:C1",
             valueInputOption="RAW",
             body={"values": header}
         ).execute()
@@ -76,15 +77,15 @@ def write_release_notes(data):
         # スプレッドシートのサイズを考慮し、広めにクリア
         sheet.values().clear(
             spreadsheetId=SPREADSHEET_ID, 
-            range=f"{RELEASE_SHEET}!A2:C1000"
+            range=f"{RELEASE_SHEET}!A2:E1000"
         ).execute()
         
         # 3. データ書き込み
         sheet.values().update(
             spreadsheetId=SPREADSHEET_ID,
             # A2から開始し、データ全体を書き込む
-            range=f"{RELEASE_SHEET}!A2:B",
-            valueInputOption="USER_ENTERED", # スプレッドシートの書式を維持するため
+            range=f"{RELEASE_SHEET}!A2:C",
+            valueInputOption="USER_ENTERED", 
             body={"values": data}
         ).execute()
         
@@ -94,16 +95,16 @@ def write_release_notes(data):
         print(f"⚠️ 書き込み処理中にエラーが発生しました: {e}")
         sys.exit(1)
 
+
 # ==========================
 # スクレイピング関数 (Beautiful Soupを使用)
 # ==========================
 def extract_release_notes(url):
     """
-    OpenAI ChatGPTリリースノートのURLから日付と内容を抽出します。
+    OpenAI ChatGPTリリースノートのURLから日付(H1)、タイトル(H3)、本文(<p>, <ul>)を抽出します。
     """
     print(f"🔍 {url} からリリースノートを抽出中...")
     try:
-        # Webページを取得
         response = requests.get(url, timeout=10)
         response.raise_for_status() 
     except RequestException as e:
@@ -111,31 +112,74 @@ def extract_release_notes(url):
         return []
 
     soup = BeautifulSoup(response.content, 'html.parser')
-    article_body = soup.find('div', class_='article-body')
-    if not article_body:
-        print("Error: Could not find the main article body.")
-        return []
-
-    data_to_write = [] # 書き込み形式: [['日付', '内容'], ...]
-    current_date = None
+    data_to_write = [] # 書き込み形式: [['日付', 'タイトル', '本文'], ...]
     
-    for element in article_body.children:
-        # <h2>タグを検出: これがリリース日
-        if element.name == 'h2':
-            current_date = element.get_text(strip=True)
+    # ページ内の全ての日付（<h1>タグ）を取得
+    h1_elements = soup.find_all('h1')
+    
+    if not h1_elements:
+        print("❌ <h1>タグ（リリース日）がページ内から一つも見つかりませんでした。")
+        return []
+    
+    for h1_tag in h1_elements:
+        current_date = h1_tag.get_text(strip=True)
         
-        # リリース内容を含む要素（<p>タグや<ul>タグ）を検出
-        elif current_date and element.name in ['p', 'ul', 'div']: 
-            content = element.get_text(separator='\n', strip=True)
+        # H1タグの次の兄弟要素から、H3タイトルと本文を探す
+        sibling = h1_tag.next_sibling
+        
+        # この日付セクションの最初のH3タイトルを探す
+        # H3がない場合は、H1の直後のPタグ以降が本文となる（例: October 22, 2025）
+        first_h3 = h1_tag.find_next_sibling('h3')
+
+        if first_h3:
+            # --- (A) 複数のH3タイトルが存在するセクションの処理 ---
             
-            if content:
-                # 抽出データの最終エントリの日付をチェック
-                if data_to_write and data_to_write[-1][0] == current_date:
-                    # 同じ日付の場合は内容を追記
-                    data_to_write[-1][1] += '\n\n' + content 
+            # H1タグの次の要素から、H1が現れるまで処理を続ける
+            while sibling and sibling.name != 'h1':
+                if sibling.name == 'h3':
+                    # 新しいH3タイトルが見つかった場合
+                    current_title = sibling.get_text(strip=True)
+                    content_parts = []
+                    
+                    # H3タグの次の兄弟要素を辿り、次のH1またはH3が現れるまでを本文とする
+                    sub_sibling = sibling.next_sibling
+                    while sub_sibling and sub_sibling.name not in ['h1', 'h3']:
+                        if sub_sibling.name in ['p', 'ul']:
+                            content = sub_sibling.get_text(separator='\n', strip=True)
+                            if content:
+                                content_parts.append(content)
+                        sub_sibling = sub_sibling.next_sibling
+                    
+                    full_content = '\n\n'.join(content_parts)
+                    
+                    # データを追加: [日付, タイトル, 本文]
+                    if full_content:
+                        data_to_write.append([current_date, current_title, full_content])
+                        
+                    # 兄弟要素の走査をH3の次の要素から再開
+                    sibling = sub_sibling
                 else:
-                    # 新しい日付の場合は新しい行として追加
-                    data_to_write.append([current_date, content])
+                    # H3以外の要素（テキストノードなど）はスキップ
+                    sibling = sibling.next_sibling
+        
+        else:
+            # --- (B) H3タイトルがないセクションの処理 (日付と本文のみ) ---
+            current_title = "" # B列は空欄
+            content_parts = []
+            
+            # H1タグの次の要素から、次のH1が現れるまでを本文とする
+            while sibling and sibling.name != 'h1':
+                if sibling.name in ['p', 'ul']:
+                    content = sibling.get_text(separator='\n', strip=True)
+                    if content:
+                        content_parts.append(content)
+                sibling = sibling.next_sibling
+            
+            full_content = '\n\n'.join(content_parts)
+            
+            # データを追加: [日付, タイトル(空), 本文]
+            if full_content:
+                data_to_write.append([current_date, current_title, full_content])
     
     print(f"✅ 抽出完了。{len(data_to_write)} 件のリリース情報を検出しました。")
     return data_to_write
