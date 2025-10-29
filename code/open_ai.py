@@ -13,11 +13,8 @@ from bs4 import BeautifulSoup
 # ==========================
 # Google Sheets & 認証設定
 # ==========================
-# Google Cloud Consoleでsheets.googleapis.comの有効化が必要です。
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 TOKEN_PICKLE_FILE = 'token.pickle'
-# 🚨 ここをあなたのスプレッドシートIDに置き換えてください
-# 1U_6H73SKZ7NXWHB7oXG2mdhh4kHe0zLXg9iSJ3jCjqY は元のコードの例です。
 SPREADSHEET_ID = "1waFSSryRnz1H0EzgUoTPjcqjfyssd3PbXclANx0YOZA" 
 # 書き込み先のシート名を設定
 RELEASE_SHEET = "OpenAI" 
@@ -189,12 +186,7 @@ def extract_release_notes(url):
 # メイン実行
 # ==========================
 if __name__ == "__main__":
-    
-    # スプレッドシートIDが変更されているかチェック
-    if SPREADSHEET_ID == "1waFSSryRnz1H0EzgUoTPjcqjfyssd3PbXclANx0YOZA":
-        print("\n--- 警告 ---")
-        print("SPREADSHEET_ID をあなたのスプレッドシートIDに置き換えてください。処理を終了します。")
-        sys.exit(1)
+
 
     # 1. リリースノートを抽出
     release_data = extract_release_notes(URL)
