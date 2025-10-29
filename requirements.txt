@@ -1,0 +1,10 @@
+httpx==0.26.0
+google-api-python-client==2.125.0
+google-auth==2.26.2
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.0
+selectolax==0.3.27
+selenium
+webdriver-manager
+gspread
+oauth2client  # Google Sheets API の認証に必要
