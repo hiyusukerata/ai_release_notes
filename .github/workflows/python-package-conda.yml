@@ -1,0 +1,53 @@
+name: OpenAI_Release Notes
+
+on:
+  schedule:
+    - cron: "* * * 1 *"  
+  workflow_dispatch:  # 手動実行も可能にする
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+          cache: "pip"
+
+      - name: 必要なパッケージをインストール
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt || { echo "❌ ERROR: requirements.txt が見つかりません。"; exit 1; }
+
+      - name: Restore OAuth Token
+        run: |
+          if [ -z "$GOOGLE_OAUTH_TOKEN" ]; then
+            echo "❌ ERROR: GOOGLE_OAUTH_TOKEN is empty. Check your GitHub Secrets."
+            exit 1
+          fi
+          
+          echo "$GOOGLE_OAUTH_TOKEN" | base64 --decode -i - > token.pickle
+          
+          if [ ! -f "token.pickle" ]; then
+            echo "❌ ERROR: token.pickle was not created."
+            exit 1
+          fi
+          
+          if [ ! -s "token.pickle" ]; then
+            echo "❌ ERROR: token.pickle is empty. The Base64 decoding may have failed."
+            exit 1
+          fi
+          
+          ls -l token.pickle
+          file token.pickle
+        shell: bash
+        env:
+          GOOGLE_OAUTH_TOKEN: ${{ secrets.GOOGLE_OAUTH_TOKEN }}
+
+      - name: スクリプトを実行
+        run: python code/open_ai.py
