@@ -101,6 +101,11 @@ def extract_release_notes(url):
     OpenAI ChatGPTリリースノートのURLから日付(H1)、タイトル(H3)、本文(<p>, <ul>)を抽出します。
     """
     print(f"🔍 {url} からリリースノートを抽出中...")
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36'
+    }
+    
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status() 
