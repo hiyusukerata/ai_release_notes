@@ -20,7 +20,7 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 TOKEN_PICKLE_FILE = 'token.pickle'
 # 転記先スプレッドシートID
 SPREADSHEET_ID = "1EVf63WG2LVToyyYCV0_G8Y4AAibfmydAu4xHseisyKA"
-RELEASE_SHEET = "OpenAI"
+RESULT_SHEET = "crawl"
 URL = "https://help.openai.com/en/articles/6825453-chatgpt-release-notes"
 
 # ==========================
@@ -52,11 +52,11 @@ def write_to_b2(text_content):
         body = {'values': [[text_content]]}
         sheet.values().update(
             spreadsheetId=SPREADSHEET_ID,
-            range=f"{RELEASE_SHEET}!B2",
+            range=f"{RESULT_SHEET}!B2",
             valueInputOption="USER_ENTERED",
             body=body
         ).execute()
-        print(f"✅ {RELEASE_SHEET}!B2 への転記が成功しました。")
+        print(f"✅ {RESULT_SHEET}!B2 への転記が成功しました。")
     except Exception as e:
         print(f"⚠️ 書き込みエラー: {e}")
 
