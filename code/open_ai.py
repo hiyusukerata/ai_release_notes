@@ -15,93 +15,63 @@ from bs4 import BeautifulSoup
 # ==========================
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 TOKEN_PICKLE_FILE = 'token.pickle'
-SPREADSHEET_ID = "1waFSSryRnz1H0EzgUoTPjcqjfyssd3PbXclANx0YOZA" 
-# 書き込み先のシート名を設定
+# ご提示いただいたスプレッドシートID
+SPREADSHEET_ID = "1EVf63WG2LVToyyYCV0_G8Y4AAibfmydAu4xHseisyKA" 
 RELEASE_SHEET = "OpenAI" 
 URL = "https://help.openai.com/en/articles/6825453-chatgpt-release-notes"
 
-# ==========================
-# Google Sheets 認証 (ご提示のロジックを使用)
-# ==========================
 def get_credentials():
-    """token.pickleから認証情報をロードし、必要ならリフレッシュします。"""
     creds = None
     if not os.path.exists(TOKEN_PICKLE_FILE):
-        print("❌ token.pickle が存在しません。OAuth認証を完了させてから実行してください。")
+        print("❌ token.pickle が存在しません。")
         sys.exit(1)
-        
     with open(TOKEN_PICKLE_FILE, 'rb') as f:
         creds = pickle.load(f)
-        
     if not creds.valid:
         if creds.expired and creds.refresh_token:
-            print("🕒 トークンをリフレッシュしています...")
             creds.refresh(Request())
         else:
-            print("❌ OAuth トークンが無効です。token.pickleを再取得してください。")
+            print("❌ OAuth トークンが無効です。")
             sys.exit(1)
-            
     return creds
 
-
 # ==========================
-# Sheets 書き込み関数 (ロジックを3列用に修正)
+# Sheets 書き込み関数 (B2セルへの転記に特化)
 # ==========================
-def write_release_notes(data):
+def write_to_b2(text_content):
     """
-    抽出したリリース情報をスプレッドシートのA2以降に書き込みます。
-    A列: 日付, B列: タイトル, C列: 本文
+    指定されたテキストをB2セルに書き込みます。
     """
     try:
         creds = get_credentials()
         service = build('sheets', 'v4', credentials=creds)
         sheet = service.spreadsheets()
         
-        if not data:
-            print("⚠️ 転記するデータがありません。")
-            return
-
-        # 1. ヘッダー行 (A1:C1) を書き込み
-        header = [['日付 (H1)', 'タイトル (H3)', '本文']]
+        # B2セルに書き込み（valuesは2次元配列にする必要があります）
+        body = {
+            'values': [[text_content]]
+        }
+        
         sheet.values().update(
             spreadsheetId=SPREADSHEET_ID,
-            range=f"{RELEASE_SHEET}!A1:C1",
-            valueInputOption="RAW",
-            body={"values": header}
-        ).execute()
-
-        # 2. 既存データ（A2以降）をクリア
-        # スプレッドシートのサイズを考慮し、広めにクリア
-        sheet.values().clear(
-            spreadsheetId=SPREADSHEET_ID, 
-            range=f"{RELEASE_SHEET}!A2:E1000"
+            range=f"{RELEASE_SHEET}!B2",
+            valueInputOption="USER_ENTERED",
+            body=body
         ).execute()
         
-        # 3. データ書き込み
-        sheet.values().update(
-            spreadsheetId=SPREADSHEET_ID,
-            # A2から開始し、データ全体を書き込む
-            range=f"{RELEASE_SHEET}!A2:C",
-            valueInputOption="USER_ENTERED", 
-            body={"values": data}
-        ).execute()
-        
-        print(f"✅ {len(data)} 行を {RELEASE_SHEET} シートに転記しました。")
+        print(f"✅ スプレッドシートの {RELEASE_SHEET}!B2 に転記が完了しました。")
         
     except Exception as e:
         print(f"⚠️ 書き込み処理中にエラーが発生しました: {e}")
-        sys.exit(1)
-
 
 # ==========================
-# スクレイピング関数 (Beautiful Soupを使用)
+# スクレイピング関数 (2つ目のh1セクションを抽出)
 # ==========================
-def extract_release_notes(url):
+def extract_second_h1_content(url):
     """
-    OpenAI ChatGPTリリースノートのURLから日付(H1)、タイトル(H3)、本文(<p>, <ul>)を抽出します。
+    2つ目のh1から、3つ目のh1が始まるまでの内容をすべて取得します。
     """
-    print(f"🔍 {url} からリリースノートを抽出中...")
-
+    print(f"🔍 {url} から2つ目のh1セクションを抽出中...")
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36'
     }
@@ -111,99 +81,51 @@ def extract_release_notes(url):
         response.raise_for_status() 
     except RequestException as e:
         print(f"Error fetching URL: {e}")
-        return []
+        return ""
 
     soup = BeautifulSoup(response.content, 'html.parser')
-    data_to_write = [] # 書き込み形式: [['日付', 'タイトル', '本文'], ...]
-    
-    # ページ内の全ての日付（<h1>タグ）を取得
     h1_elements = soup.find_all('h1')
     
-    if not h1_elements:
-        print("❌ <h1>タグ（リリース日）がページ内から一つも見つかりませんでした。")
-        return []
+    # 2つ目のh1が存在するか確認 (インデックス1)
+    if len(h1_elements) < 2:
+        print("❌ ページ内にh1タグが2つ以上見つかりませんでした。")
+        return ""
     
-    for h1_tag in h1_elements:
-        current_date = h1_tag.get_text(strip=True)
-        
-        # H1タグの次の兄弟要素から、H3タイトルと本文を探す
-        sibling = h1_tag.next_sibling
-        
-        # この日付セクションの最初のH3タイトルを探す
-        # H3がない場合は、H1の直後のPタグ以降が本文となる（例: October 22, 2025）
-        first_h3 = h1_tag.find_next_sibling('h3')
-
-        if first_h3:
-            # --- (A) 複数のH3タイトルが存在するセクションの処理 ---
-            
-            # H1タグの次の要素から、H1が現れるまで処理を続ける
-            while sibling and sibling.name != 'h1':
-                if sibling.name == 'h3':
-                    # 新しいH3タイトルが見つかった場合
-                    current_title = sibling.get_text(strip=True)
-                    content_parts = []
-                    
-                    # H3タグの次の兄弟要素を辿り、次のH1またはH3が現れるまでを本文とする
-                    sub_sibling = sibling.next_sibling
-                    while sub_sibling and sub_sibling.name not in ['h1', 'h3']:
-                        if sub_sibling.name in ['p', 'ul']:
-                            content = sub_sibling.get_text(separator='\n', strip=True)
-                            if content:
-                                content_parts.append(content)
-                        sub_sibling = sub_sibling.next_sibling
-                    
-                    full_content = '\n\n'.join(content_parts)
-                    
-                    # データを追加: [日付, タイトル, 本文]
-                    if full_content:
-                        data_to_write.append([current_date, current_title, full_content])
-                        
-                    # 兄弟要素の走査をH3の次の要素から再開
-                    sibling = sub_sibling
-                else:
-                    # H3以外の要素（テキストノードなど）はスキップ
-                    sibling = sibling.next_sibling
-        
-        else:
-            # --- (B) H3タイトルがないセクションの処理 (日付と本文のみ) ---
-            current_title = "" # B列は空欄
-            content_parts = []
-            
-            # H1タグの次の要素から、次のH1が現れるまでを本文とする
-            while sibling and sibling.name != 'h1':
-                if sibling.name in ['p', 'ul']:
-                    content = sibling.get_text(separator='\n', strip=True)
-                    if content:
-                        content_parts.append(content)
-                sibling = sibling.next_sibling
-            
-            full_content = '\n\n'.join(content_parts)
-            
-            # データを追加: [日付, タイトル(空), 本文]
-            if full_content:
-                data_to_write.append([current_date, current_title, full_content])
+    target_h1 = h1_elements[1] # 2つ目のh1
+    content_parts = []
     
-    print(f"✅ 抽出完了。{len(data_to_write)} 件のリリース情報を検出しました。")
-    return data_to_write
-
+    # h1自体のテキストを追加（必要なければコメントアウトしてください）
+    content_parts.append(target_h1.get_text(strip=True))
+    
+    # 次の要素から順番に取得し、次のh1が現れたら停止
+    sibling = target_h1.next_sibling
+    while sibling:
+        # 次のh1が見つかったら終了
+        if sibling.name == 'h1':
+            break
+        
+        # タグ（p, ul, h3など）であればテキストを抽出
+        if sibling.name:
+            text = sibling.get_text(separator='\n', strip=True)
+            if text:
+                content_parts.append(text)
+        
+        sibling = sibling.next_sibling
+    
+    # 改行で結合して返す
+    return '\n\n'.join(content_parts)
 
 # ==========================
 # メイン実行
 # ==========================
 if __name__ == "__main__":
+    # 1. 2番目のリリース内容を抽出
+    extracted_text = extract_second_h1_content(URL)
 
-
-    # 1. リリースノートを抽出
-    release_data = extract_release_notes(URL)
-
-    # 2. 抽出結果をコンソールに出力
-    print("\n--- 抽出結果 (A列:日付 | B列:内容) ---")
-    for row in release_data:
-        print(f"{row[0]} | {row[1][:60]}...") # 内容は一部表示
-    
-    # 3. スプレッドシートに書き込み
-    write_release_notes(release_data)
-
-    print("\n-------------------------------------------------------")
-    print(f"✨ 全ての処理が完了しました。スプレッドシートを確認してください。")
-    print("-------------------------------------------------------")
+    if extracted_text:
+        # 2. スプレッドシートのB2に書き込み
+        write_to_b2(extracted_text)
+        print("\n--- 抽出された内容のプレビュー ---")
+        print(extracted_text[:200] + "...") 
+    else:
+        print("抽出に失敗したため、書き込みは行われませんでした。")
