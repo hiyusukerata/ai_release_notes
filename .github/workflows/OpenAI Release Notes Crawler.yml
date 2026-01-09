@@ -1,0 +1,36 @@
+name: OpenAI Release Notes Crawler
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # 毎日日本時間午前9時に実行
+  workflow_dispatch: # 手動実行用
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install selenium openai requests
+
+      - name: Run Scraper
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: python scrape_openai.py
+
+      - name: Commit and Push history
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add history/openai.json
+          git commit -m "Update crawl history" || echo "No changes to commit"
+          git push
