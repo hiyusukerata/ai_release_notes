@@ -10,3 +10,4 @@ gspread
 oauth2client  # Google Sheets API の認証に必要
 requests
 beautifulsoup4
+openai
