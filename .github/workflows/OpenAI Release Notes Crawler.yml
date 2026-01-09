@@ -5,6 +5,9 @@ on:
     - cron: "0 0 * * *"  # 毎日日本時間9:00に実行（例）
   workflow_dispatch:      # 手動実行可能
 
+permissions:
+  contents: write
+
 jobs:
   crawl:
     runs-on: ubuntu-latest
