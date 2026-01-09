@@ -2,35 +2,42 @@ name: OpenAI Release Notes Crawler
 
 on:
   schedule:
-    - cron: '0 0 * * *' # 毎日日本時間午前9時に実行
-  workflow_dispatch: # 手動実行用
+    - cron: "0 0 * * *"  # 毎日日本時間9:00に実行（例）
+  workflow_dispatch:      # 手動実行可能
 
 jobs:
-  build:
+  crawl:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
 
-      - name: Set up Python
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Pythonをセットアップ
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: "3.9"
+          cache: "pip"
 
-      - name: Install dependencies
+      - name: 必要なパッケージをインストール
         run: |
-          pip install selenium openai requests
+          python -m pip install --upgrade pip
+          # selenium, openai, requests などが必要です。requirements.txtに記述してください。
+          pip install -r requirements.txt || { echo "❌ ERROR: requirements.txt が見つかりません。"; exit 1; }
 
-      - name: Run Scraper
+      - name: スクリプトを実行
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        run: python scrape_openai.py
+        run: python code/scrape_openai.py
 
-      - name: Commit and Push history
+      - name: 履歴(openai.json)をリポジトリに保存
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add history/openai.json
-          git commit -m "Update crawl history" || echo "No changes to commit"
-          git push
+          # history/openai.json が更新されていればコミット
+          if [ -f "history/openai.json" ]; then
+            git add history/openai.json
+            git commit -m "Update crawl history" || echo "No changes to commit"
+            git push
+          fi
