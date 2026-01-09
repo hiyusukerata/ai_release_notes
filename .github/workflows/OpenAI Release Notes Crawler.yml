@@ -2,7 +2,7 @@ name: OpenAI Release Notes Crawler
 
 on:
   schedule:
-    - cron: "0 0 * * *"  # 毎日日本時間9:00に実行（例）
+    - cron: "0 21 * * *"  # 毎日UTC 21:00（日本時間 翌6:00）に実行
   workflow_dispatch:      # 手動実行可能
 
 permissions:
