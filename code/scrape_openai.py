@@ -12,7 +12,7 @@ from openai import OpenAI
 # 設定情報
 # ==========================
 URL = "https://help.openai.com/en/articles/6825453-chatgpt-release-notes"
-HISTORY_FILE = "history/openai_changelog.json"
+HISTORY_FILE = "history/openai.json"
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
@@ -34,11 +34,8 @@ def init_webdriver():
 # ==========================
 def load_history():
     if os.path.exists(HISTORY_FILE):
-        try:
-            with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            return []
+        with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
     return []
 
 def save_history(history):
@@ -64,19 +61,13 @@ def translate_text(text):
         return text
 
 # ==========================
-# Slack通知
+# Slack通知（ここを修正しました）
 # ==========================
 def send_slack(message):
-    # メッセージ末尾にChatGPTのリリースノートURLを付与
-    source_url = "https://help.openai.com/en/articles/6825453-chatgpt-release-notes"
-    full_text = f"{message}\n\n🔗 出典: {source_url}"
-    
-    payload = {"text": full_text}
-    try:
-        response = requests.post(SLACK_WEBHOOK_URL, json=payload)
-        response.raise_for_status()
-    except Exception as e:
-        print(f"⚠️ Slack送信エラー: {e}")
+    # メッセージの末尾にURLを追加
+    footer_url = "https://help.openai.com/en/articles/6825453-chatgpt-release-notes"
+    payload = {"text": f"{message}\n\n{footer_url}"}
+    requests.post(SLACK_WEBHOOK_URL, json=payload)
 
 # ==========================
 # クロール処理
@@ -88,33 +79,23 @@ def main():
     post_targets = []
 
     try:
-        print(f"🔍 ChatGPT 調査開始 (h1基準): {URL}")
         driver.get(URL)
         wait = WebDriverWait(driver, 20)
-        
-        # h1要素がロードされるのを待機
         wait.until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
         
         h1_elements = driver.find_elements(By.TAG_NAME, "h1")
         
         # 2番目から6番目のh1を対象にする (インデックス 1〜5)
-        # ※1番目のh1はページタイトルであることが多いため除外
-        start_idx = 1
         end_idx = min(6, len(h1_elements))
         
-        for i in range(start_idx, end_idx):
+        for i in range(1, end_idx):
             target_h1 = h1_elements[i]
             date_title = target_h1.text.strip()
-            
-            if not date_title:
-                continue
-
-            # 今回見つかったものを履歴保存対象に追加
-            new_history.append(date_title)
+            new_history.append(date_title) # 今回見つかったものを保存対象に
 
             # 履歴になければ新規投稿対象
             if date_title not in history:
-                print(f"✨ ChatGPT 新規アップデート発見: {date_title}")
+                print(f"✨ 新規アップデート発見: {date_title}")
                 
                 # JavaScriptで次のh1までのコンテンツを取得
                 script = """
@@ -129,29 +110,23 @@ def main():
                 return result;
                 """
                 content_text = driver.execute_script(script, target_h1)
-                
-                if not content_text.strip():
-                    content_text = "(コンテンツの取得に失敗しました)"
-
                 full_text = f"【{date_title}】\n{content_text}"
                 
                 # 翻訳
                 translated_text = translate_text(full_text)
                 post_targets.append(translated_text)
 
-        # Slack送信
+        # 新規があればSlack送信
         if post_targets:
             for post in post_targets:
                 send_slack(f"📢 *ChatGPT 新機能アップデート*\n\n{post}")
-            print(f"✅ {len(post_targets)} 件の更新を送信しました。")
+            print(f"✅ {len(post_targets)} 件の更新をSlackに送信しました。")
         else:
-            print("📭 新しい更新はありません。")
+            print("📭 新しいアップデートはありませんでした。")
 
-        # 履歴を更新
+        # 履歴を更新（今回のクロール結果で上書き）
         save_history(new_history)
 
-    except Exception as e:
-        print(f"❌ エラーが発生しました: {e}")
     finally:
         driver.quit()
 
