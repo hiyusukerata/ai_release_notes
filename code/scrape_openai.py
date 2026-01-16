@@ -12,7 +12,7 @@ from openai import OpenAI
 # 設定情報
 # ==========================
 URL = "https://help.openai.com/en/articles/6825453-chatgpt-release-notes"
-HISTORY_FILE = "history/openai.json"
+HISTORY_FILE = "history/openai_changelog.json"
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
@@ -34,8 +34,11 @@ def init_webdriver():
 # ==========================
 def load_history():
     if os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        try:
+            with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return []
     return []
 
 def save_history(history):
@@ -64,8 +67,16 @@ def translate_text(text):
 # Slack通知
 # ==========================
 def send_slack(message):
-    payload = {"text": message}
-    requests.post(SLACK_WEBHOOK_URL, json=payload)
+    # メッセージ末尾にChatGPTのリリースノートURLを付与
+    source_url = "https://help.openai.com/en/articles/6825453-chatgpt-release-notes"
+    full_text = f"{message}\n\n🔗 出典: {source_url}"
+    
+    payload = {"text": full_text}
+    try:
+        response = requests.post(SLACK_WEBHOOK_URL, json=payload)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"⚠️ Slack送信エラー: {e}")
 
 # ==========================
 # クロール処理
@@ -77,55 +88,68 @@ def main():
     post_targets = []
 
     try:
+        print(f"🔍 ChatGPT 調査開始: {URL}")
         driver.get(URL)
         wait = WebDriverWait(driver, 20)
-        wait.until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
         
-        h1_elements = driver.find_elements(By.TAG_NAME, "h1")
+        # 記事内ではh2またはh3が日付見出しに使われることが多いため、汎用的に待機
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "h2, h3")))
         
-        # 2番目から6番目のh1を対象にする (インデックス 1〜5)
-        # ページ内のh1が少ない場合は、存在する分だけ取得
-        end_idx = min(6, len(h1_elements))
+        # 最初の指示に基づきh2をベースに取得（サイト構造によりh3の場合はここをh3に変更してください）
+        elements = driver.find_elements(By.TAG_NAME, "h2")
         
-        for i in range(1, end_idx):
-            target_h1 = h1_elements[i]
-            date_title = target_h1.text.strip()
-            new_history.append(date_title) # 今回見つかったものを保存対象に
+        # 1番目から6番目の要素を対象にする
+        end_idx = min(6, len(elements))
+        
+        for i in range(0, end_idx):
+            target_el = elements[i]
+            date_title = target_el.text.strip()
+            
+            if not date_title or len(date_title) < 5: # 極端に短いテキストはスキップ
+                continue
 
-            # 履歴になければ新規投稿対象
+            new_history.append(date_title)
+
+            # 履歴になければ新規投稿
             if date_title not in history:
-                print(f"✨ 新規アップデート発見: {date_title}")
+                print(f"✨ ChatGPT 新規アップデート発見: {date_title}")
                 
-                # JavaScriptで次のh1までのコンテンツを取得
+                # JavaScriptで次の同じタグが現れるまでのコンテンツを取得
                 script = """
                 var startNode = arguments[0];
+                var tagName = startNode.tagName;
                 var result = "";
                 var curr = startNode.nextElementSibling;
                 while (curr) {
-                    if (curr.tagName === 'H1') break;
+                    if (curr.tagName === tagName) break;
                     result += curr.innerText + "\\n";
                     curr = curr.nextElementSibling;
                 }
                 return result;
                 """
-                content_text = driver.execute_script(script, target_h1)
+                content_text = driver.execute_script(script, target_el)
+                
+                if not content_text.strip():
+                    content_text = "(詳細コンテンツの取得に失敗しました)"
+
                 full_text = f"【{date_title}】\n{content_text}"
                 
                 # 翻訳
                 translated_text = translate_text(full_text)
                 post_targets.append(translated_text)
 
-        # 新規があればSlack送信
+        # Slack送信
         if post_targets:
             for post in post_targets:
                 send_slack(f"📢 *ChatGPT 新機能アップデート*\n\n{post}")
-            print(f"✅ {len(post_targets)} 件の更新をSlackに送信しました。")
+            print(f"✅ {len(post_targets)} 件の更新を送信しました。")
         else:
-            print("📭 新しいアップデートはありませんでした。")
+            print("📭 新しい更新はありません。")
 
-        # 履歴を更新（今回のクロール結果で上書き）
         save_history(new_history)
 
+    except Exception as e:
+        print(f"❌ エラーが発生しました: {e}")
     finally:
         driver.quit()
 
