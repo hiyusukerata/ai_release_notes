@@ -88,49 +88,50 @@ def main():
     post_targets = []
 
     try:
-        print(f"🔍 ChatGPT 調査開始: {URL}")
+        print(f"🔍 ChatGPT 調査開始 (h1基準): {URL}")
         driver.get(URL)
         wait = WebDriverWait(driver, 20)
         
-        # 記事内ではh2またはh3が日付見出しに使われることが多いため、汎用的に待機
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "h2, h3")))
+        # h1要素がロードされるのを待機
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
         
-        # 最初の指示に基づきh2をベースに取得（サイト構造によりh3の場合はここをh3に変更してください）
-        elements = driver.find_elements(By.TAG_NAME, "h2")
+        h1_elements = driver.find_elements(By.TAG_NAME, "h1")
         
-        # 1番目から6番目の要素を対象にする
-        end_idx = min(6, len(elements))
+        # 2番目から6番目のh1を対象にする (インデックス 1〜5)
+        # ※1番目のh1はページタイトルであることが多いため除外
+        start_idx = 1
+        end_idx = min(6, len(h1_elements))
         
-        for i in range(0, end_idx):
-            target_el = elements[i]
-            date_title = target_el.text.strip()
+        for i in range(start_idx, end_idx):
+            target_h1 = h1_elements[i]
+            date_title = target_h1.text.strip()
             
-            if not date_title or len(date_title) < 5: # 極端に短いテキストはスキップ
+            if not date_title:
                 continue
 
+            # 今回見つかったものを履歴保存対象に追加
             new_history.append(date_title)
 
-            # 履歴になければ新規投稿
+            # 履歴になければ新規投稿対象
             if date_title not in history:
                 print(f"✨ ChatGPT 新規アップデート発見: {date_title}")
                 
-                # JavaScriptで次の同じタグが現れるまでのコンテンツを取得
+                # JavaScriptで次のh1までのコンテンツを取得
                 script = """
                 var startNode = arguments[0];
-                var tagName = startNode.tagName;
                 var result = "";
                 var curr = startNode.nextElementSibling;
                 while (curr) {
-                    if (curr.tagName === tagName) break;
+                    if (curr.tagName === 'H1') break;
                     result += curr.innerText + "\\n";
                     curr = curr.nextElementSibling;
                 }
                 return result;
                 """
-                content_text = driver.execute_script(script, target_el)
+                content_text = driver.execute_script(script, target_h1)
                 
                 if not content_text.strip():
-                    content_text = "(詳細コンテンツの取得に失敗しました)"
+                    content_text = "(コンテンツの取得に失敗しました)"
 
                 full_text = f"【{date_title}】\n{content_text}"
                 
@@ -146,6 +147,7 @@ def main():
         else:
             print("📭 新しい更新はありません。")
 
+        # 履歴を更新
         save_history(new_history)
 
     except Exception as e:
