@@ -95,10 +95,9 @@ def main():
         
         # 1つ目から6つ目を対象にする (インデックス 0〜5)
         end_idx = min(6, len(elements))
-        
+
         for i in range(0, end_idx):
             target_el = elements[i]
-            # 日付テキスト（例：October 22, 2024 など）を取得
             date_title = target_el.text.strip()
             
             if not date_title:
@@ -106,28 +105,48 @@ def main():
 
             new_history.append(date_title)
 
-            # 履歴になければ新規投稿対象
             if date_title not in history:
                 print(f"✨ Claude 新規アップデート発見: {date_title}")
                 
-                # JavaScriptで「次の同じクラス要素」が現れるまでのコンテンツをすべて取得
+                # JavaScriptロジックを強化：
+                # 見出し要素からスタートし、DOMツリー上で「次のアップデート見出し」に
+                # ぶつかるまで、すべてのテキストノードを収集します。
                 script = """
                 var startNode = arguments[0];
                 var selector = arguments[1];
                 var result = "";
+                
+                // 1. 開始要素の次の要素から探索開始
                 var curr = startNode.nextElementSibling;
+                
+                // もし隣に要素がなければ親に上がって隣を探す（入れ子対策）
+                if (!curr) {
+                    curr = startNode.parentElement.nextElementSibling;
+                }
+
                 while (curr) {
-                    // 次のアップデートセクション（同じクラスを持つ要素）に来たら終了
-                    if (curr.matches(selector)) break;
+                    // 次のアップデートセクション（同じクラスを持つ要素）が見つかったら終了
+                    // 自身または子要素にそのクラスがあるかチェック
+                    if (curr.matches(selector) || curr.querySelector(selector)) break;
+                    
                     result += curr.innerText + "\\n";
                     curr = curr.nextElementSibling;
+                    
+                    // 親要素の境界を超えて次のセクションを探すための処理
+                    if (!curr && startNode.parentElement) {
+                        curr = startNode.parentElement.nextElementSibling;
+                    }
                 }
                 return result;
                 """
                 content_text = driver.execute_script(script, target_el, TARGET_CLASS_SELECTOR)
+                
+                # デバッグ用：取得結果が空の場合の対策
+                if not content_text.strip():
+                    content_text = "(コンテンツの取得に失敗しました。サイト構造が変更された可能性があります)"
+
                 full_text = f"【{date_title}】\n{content_text}"
                 
-                # 翻訳・要約
                 translated_text = translate_text(full_text)
                 post_targets.append(translated_text)
 
