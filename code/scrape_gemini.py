@@ -34,8 +34,11 @@ def init_webdriver():
 # ==========================
 def load_history():
     if os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        try:
+            with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return []
     return []
 
 def save_history(history):
@@ -44,14 +47,14 @@ def save_history(history):
         json.dump(history, f, ensure_ascii=False, indent=2)
 
 # ==========================
-# ChatGPT API による翻訳・要約
+# ChatGPT API による翻訳
 # ==========================
 def translate_text(text):
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "あなたは優秀なエンジニア兼翻訳者です。Google Gemini APIのアップデート情報を、開発者向けに分かりやすく日本語で要約して翻訳してください。"},
+                {"role": "system", "content": "あなたは優秀なエンジニア兼翻訳者です。Google Gemini APIのアップデート情報を、日本のユーザー向けに分かりやすく日本語で要約して翻訳してください。"},
                 {"role": "user", "content": text}
             ]
         )
@@ -64,9 +67,14 @@ def translate_text(text):
 # Slack通知
 # ==========================
 def send_slack(message):
-    payload = {"text": message}
+    # メッセージ末尾にGeminiのURLを付与
+    source_url = "https://ai.google.dev/gemini-api/docs/changelog?hl=ja"
+    full_text = f"{message}\n\n🔗 出典: {source_url}"
+    
+    payload = {"text": full_text}
     try:
-        requests.post(SLACK_WEBHOOK_URL, json=payload)
+        response = requests.post(SLACK_WEBHOOK_URL, json=payload)
+        response.raise_for_status()
     except Exception as e:
         print(f"⚠️ Slack送信エラー: {e}")
 
@@ -80,28 +88,30 @@ def main():
     post_targets = []
 
     try:
-        print(f"🔍 アクセス中: {URL}")
+        print(f"🔍 Gemini 調査開始: {URL}")
         driver.get(URL)
         wait = WebDriverWait(driver, 20)
         
-        # ページ内のh2要素がロードされるのを待機
+        # h2要素がロードされるのを待機
         wait.until(EC.presence_of_element_located((By.TAG_NAME, "h2")))
         
         h2_elements = driver.find_elements(By.TAG_NAME, "h2")
         
-        # 1つ目から6つ目のh2を対象にする (インデックス 0〜5)
+        # 1番目から6番目のh2を対象にする
         end_idx = min(6, len(h2_elements))
         
         for i in range(0, end_idx):
             target_h2 = h2_elements[i]
             date_title = target_h2.text.strip()
             
-            # 今回見つかった日付を履歴保存対象に追加
+            if not date_title:
+                continue
+
             new_history.append(date_title)
 
-            # 履歴になければ新規投稿対象
+            # 履歴になければ新規投稿
             if date_title not in history:
-                print(f"✨ 新規アップデート発見: {date_title}")
+                print(f"✨ Gemini 新規アップデート発見: {date_title}")
                 
                 # JavaScriptで次のh2までのコンテンツを取得
                 script = """
@@ -116,25 +126,28 @@ def main():
                 return result;
                 """
                 content_text = driver.execute_script(script, target_h2)
+                
+                if not content_text.strip():
+                    content_text = "(コンテンツの取得に失敗しました)"
+
                 full_text = f"【{date_title}】\n{content_text}"
                 
                 # 翻訳
                 translated_text = translate_text(full_text)
                 post_targets.append(translated_text)
 
-        # 新規があればSlack送信
+        # Slack送信
         if post_targets:
-            # 最新のものが最後に並ぶため、必要に応じて reverse() する
-            # ページの上部が最新ならそのままループ
             for post in post_targets:
                 send_slack(f"📢 *Gemini API アップデート情報*\n\n{post}")
-            print(f"✅ {len(post_targets)} 件の更新をSlackに送信しました。")
+            print(f"✅ {len(post_targets)} 件の更新を送信しました。")
         else:
-            print("📭 新しいアップデートはありませんでした。")
+            print("📭 新しい更新はありません。")
 
-        # 履歴を更新（今回取得した上位6件で上書き）
         save_history(new_history)
 
+    except Exception as e:
+        print(f"❌ エラーが発生しました: {e}")
     finally:
         driver.quit()
 
